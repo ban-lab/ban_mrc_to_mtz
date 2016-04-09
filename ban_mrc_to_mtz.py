@@ -348,7 +348,8 @@ def write_mtz_file(map_file, full_size, res_min, res_max, hkl_fp):
 
 def main():
 
-    print('\n ban_mrc_to_mtz v1.0: Generate .mtz reflection file from .mrc and .star files with FOM blurring - GNU licensed 16-02-2016 - __chsa__ \n')
+    print('\n ban_mrc_to_mtz.py v1.0: Generate .mtz reflection file from .mrc and .star files with FOM blurring - GNU licensed 16-02-2016 - __chsa__')
+    print(' <Please reference Greber BJ, Boehringer D, Leibundgut M, Bieri P, Leitner A, Schmitz N, Aebersold R, Ban N. Nature. 515: 283-6 (2014)>\n')
 
     if len(sys.argv) < 3:
         print(' Required inputs: '+sys.argv[0]+'  final_mrc_map.mrc  relion_postprocess.star [--rfree (r_free_percentage)]')
