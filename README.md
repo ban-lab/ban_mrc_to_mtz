@@ -1,5 +1,6 @@
 
  ban_mrc_to_mtz v1.0: Generate .mtz reflection file from .mrc and .star files with FOM blurring - GNU licensed 16-02-2016 - __chsa__ 
+ <Reference Greber BJ, Boehringer D, Leibundgut M, Bieri P, Leitner A, Schmitz N, Aebersold R, Ban N. Nature. 515: 283-6 (2014)>
  
  Required inputs: ./ban_mrc_to_mtz.py  final_mrc_map.mrc  relion_postprocess.star [--rfree (r_free_percentage)]
  FSC is fitted and the resolution dependent curve used to calculate radial FOM and SIGF values for reciprocal space refinement
@@ -18,4 +19,3 @@
  ...
 
  FSC table terminating in a blank line, columns specified by the numbers above, there must be no blank lines before the start
-
