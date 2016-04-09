@@ -1,5 +1,5 @@
 
- ban_mrc_to_mtz v1.0: Generate .mtz reflection file from .mrc and .star files with FOM blurring - GNU licensed 16-02-2016 - __chsa__ 
+ ban_mrc_to_mtz.py v1.0: Generate .mtz reflection file from .mrc and .star files with FOM blurring - GNU licensed 16-02-2016 - __chsa__ 
  <Reference Greber BJ, Boehringer D, Leibundgut M, Bieri P, Leitner A, Schmitz N, Aebersold R, Ban N. Nature. 515: 283-6 (2014)>
  
  Required inputs: ./ban_mrc_to_mtz.py  final_mrc_map.mrc  relion_postprocess.star [--rfree (r_free_percentage)]
