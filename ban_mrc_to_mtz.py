@@ -154,8 +154,7 @@ def read_star_column(star_file):
                 fsc_curve[0].append(float(line[res_col]))
                 fsc_curve[1].append(float(line[fsc_col]))
             except:
-                print(" Error extracting table from star file...")
-                exit(1)
+                continue
             continue
 
     if not fsc_curve[0]:
@@ -188,7 +187,7 @@ def fsc_to_fom(fsc):
     if np.isfinite(fom):
         return fom
     else:
-        return 0
+        return 0.5
 
 def fom_to_hl(fom, phi):
     '''Convert FOMs to HLA and HLB - Kevin Cowtan - www.ysbl.york.ac.uk/~cowtan/clipper'''
@@ -278,7 +277,7 @@ def fft_to_hkl(h, k, l, val, fsc_coeffs, resolution, full_size, flag_frac):
     else:
         res = 0.0
 
-    if res < resolution:
+    if res < resolution or not np.isfinite(res):
         return None, None
 
     mag = np.abs(val)
@@ -293,6 +292,10 @@ def fft_to_hkl(h, k, l, val, fsc_coeffs, resolution, full_size, flag_frac):
     hla, hlb = fom_to_hl(fom, np.angle(val))
     rf = bernoulli.rvs(flag_frac)
     record = np.array([h, k, l, mag, sig, angle, fom, hla, hlb, 0.0, 0.0, rf], dtype = np.float32)
+    
+    if not np.all(np.isfinite(record))
+        return None, None
+
     return record, res
 
 def write_mtz_file(map_file, full_size, res_min, res_max, hkl_fp):
