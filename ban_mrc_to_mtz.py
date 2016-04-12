@@ -293,7 +293,7 @@ def fft_to_hkl(h, k, l, val, fsc_coeffs, resolution, full_size, flag_frac):
     rf = bernoulli.rvs(flag_frac)
     record = np.array([h, k, l, mag, sig, angle, fom, hla, hlb, 0.0, 0.0, rf], dtype = np.float32)
     
-    if not np.all(np.isfinite(record))
+    if not np.all(np.isfinite(record)):
         return None, None
 
     return record, res
