@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 '''
 /*
  * Copyright 2014-2016 - Dr. Christopher H. S. Aylett
@@ -155,7 +155,6 @@ def read_star_column(star_file):
                 fsc_curve[1].append(float(line[fsc_col]))
             except:
                 continue
-            continue
 
     if not fsc_curve[0]:
         print(" Error reading the star file...")
@@ -215,7 +214,7 @@ def fom_to_hl(fom, phi):
         return HLA, HLB
     else:
         print(" Error determining HL coefficients for FOM = "+str(fom)+' and phase = '+str(phi))
-        exit(1)
+        return None, None
 
 def fit_fsc(fsc_curve):
     '''Fit curve to fsc'''
