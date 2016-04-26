@@ -77,7 +77,7 @@ def mrc_to_numpy(map_file):
         mrc_map = np.fromstring(f.read(), dtype = np.uint16)
     else:
         print(" Map mode must be either 8 or 16 bit integers or 32 bit floats / reals - file mode was not recognised...")
-        exit(1)
+        sys.exit(1)
     f.close()
     mrc_map = mrc_map.astype(np.float32)
     mrc_map = mrc_map.reshape(map_size)
@@ -110,7 +110,7 @@ def read_star_column(star_file):
                 print(' ' + str(angpix) + ' Angstroms per pixel')
             except:
                 print(" Error reading angpix value from star file...")
-                exit(1)
+                sys.exit(1)
             continue
 
         line = line.strip().split()
@@ -121,7 +121,7 @@ def read_star_column(star_file):
                 print(' ' + str(resolution) + ' final resolution')                
             except:
                 print(" Error extracting final resolution from star file...")
-                exit(1)
+                sys.exit(1)
             continue
 
         if line and '_rlnResolution' in line[0]:
@@ -131,7 +131,7 @@ def read_star_column(star_file):
                 print(' Resolution in column ' + str(res_col + 1) + ' of the table')
             except:
                 print(" Error extracting resolution column from star file...")
-                exit(1)
+                sys.exit(1)
             continue
 
         if line and '_rlnFourierShellCorrelationCorrected' in line[0]:
@@ -141,7 +141,7 @@ def read_star_column(star_file):
                 print(' Corrected fsc in column ' + str(fsc_col + 1) + ' of the table')
             except:
                 print(" Error extracting correctedfsc column from star file...")
-                exit(1)
+                sys.exit(1)
             continue
 
         if not line:
@@ -158,23 +158,73 @@ def read_star_column(star_file):
 
     if not fsc_curve[0]:
         print(" Error reading the star file...")
-        exit(1)
+        sys.exit(1)
 
     return fsc_curve, resolution, angpix
 
-def curve_function(x, a, b, c, d, e):
+def fsc_1sigmoid(x, *coeffs):
     '''Double sigmoidal curve for fsc fitting'''
-    y = a * (1 - (1 / (1 + np.exp(-x * b + c)))) + (1 - a) * (1 - (1 / (1 + np.exp(-x * d + e))))
-    if np.all(np.isfinite(y)):
-        return y
+    coeffs = np.asarray(coeffs)
+    coeffs[coeffs < 0] *= -1
+    value = 1 - (1 / (1 + np.exp(-x * coeffs[0] + coeffs[1])))
+    return value
+
+def fsc_2sigmoid(x, *coeffs):
+    '''Double sigmoidal curve for fsc fitting'''
+    coeffs = np.asarray(coeffs)
+    coeffs[coeffs < 0] *= -1
+    value = coeffs[0] * (1 - (1 / (1 + np.exp(-x * coeffs[1] + coeffs[2])))) + (1 - coeffs[0]) * (1 - (1 / (1 + np.exp(-x * coeffs[3] + coeffs[4]))))
+    return value
+
+def fsc_3sigmoid(x, *coeffs):
+    '''Triple sigmoidal curve for fsc fitting'''
+    coeffs = np.asarray(coeffs)
+    coeffs[coeffs < 0] *= -1
+    value = coeffs[0] * (1 - (1 / (1 + np.exp(-x * coeffs[2] + coeffs[3])))) + coeffs[1] * (1 - (1 / (1 + np.exp(-x * coeffs[4] + coeffs[5])))) + (1 - (coeffs[0] + coeffs[1])) * (1 - (1 / (1 + np.exp(-x * coeffs[6] + coeffs[7]))))
+    return value
+
+def fsc_4sigmoid(x, *coeffs):
+    '''Quadruple sigmoidal curve for fsc fitting'''
+    coeffs = np.asarray(coeffs)
+    coeffs[coeffs < 0] *= -1
+    value = coeffs[0] * (1 - (1 / (1 + np.exp(-x * coeffs[3] + coeffs[4])))) + coeffs[1] * (1 - (1 / (1 + np.exp(-x * coeffs[5] + coeffs[6])))) + coeffs[2] * (1 - (1 / (1 + np.exp(-x * coeffs[7] + coeffs[8])))) + (1 - (coeffs[0] + coeffs[1] + coeffs[2])) * (1 - (1 / (1 + np.exp(-x * coeffs[9] + coeffs[10]))))
+    return value
+
+def fsc_gaussian(res, fsc_curve):
+    '''Gaussian interpolation for fsc fitting'''
+    resolutions = np.asarray(fsc_curve[0])
+    fsc_values  = np.asarray(fsc_curve[1])
+    weights     = np.exp(-1 * (((res - resolutions) ** 2) / 0.0002))
+    integral    = np.sum(weights)
+    value       = np.sum((weights * fsc_values) / integral)
+    return value
+
+def curve_function(res, coeffs, fsc_curve):
+    '''FSC fitting'''
+    if len(coeffs) == 2:
+        value = fsc_1sigmoid(res, *coeffs)
+    elif len(coeffs) == 5:
+        value = fsc_2sigmoid(res, *coeffs)
+    elif len(coeffs) == 8:
+        value = fsc_3sigmoid(res, *coeffs)
+    elif len(coeffs) == 11:
+        value = fsc_4sigmoid(res, *coeffs)
+    else:
+        value = fsc_gaussian(res, fsc_curve)
+    if value > 1:
+        return 1
+    if value < 0:
+        return 0
+    if np.isfinite(value):
+        return value
     else:
         return 0
 
 def fsc_to_sigf(amp, fsc):
     '''Estimate a proportional SIGF from amplitude and Cref using SSNR - Pawel Penczek, Methods 
-       Enzymol. 2010 - weighting to prevent software from complaining about v. low sigfs'''
+       Enzymol. 2010 - 0.999 weighting to prevent software from complaining about v. low sigfs'''
     cref = fsc_to_fom(fsc)
-    sigf = amp / ((0.99 * cref) / (1 - 0.99 * cref))
+    sigf = amp / ((0.999 * cref) / (1 - (0.999 * cref)))
     if np.isfinite(sigf):
         return sigf
     else:
@@ -183,7 +233,7 @@ def fsc_to_sigf(amp, fsc):
 def fsc_to_fom(fsc):
     '''Convert fsc value to FOM - Peter Rosenthal & Richard Henderson, J. Mol. Biol., Oct. 2003'''
     fom = np.sqrt((2 * fsc) / (1 + fsc))
-    if np.isfinite(fom):
+    if np.all(np.isfinite(fom)):
         return fom
     else:
         return 0.5
@@ -208,6 +258,8 @@ def fom_to_hl(fom, phi):
     if q2 <= 0.0:
         r2 = -r2
     x = r1 + r2 - w
+    if x > 9999:
+        x = 9999
     HLA = x * np.cos(phi)
     HLB = x * np.sin(phi)
     if np.isfinite(HLA) and np.isfinite(HLB):
@@ -216,20 +268,26 @@ def fom_to_hl(fom, phi):
         print(" Error determining HL coefficients for FOM = "+str(fom)+' and phase = '+str(phi))
         return None, None
 
-def fit_fsc(fsc_curve):
+def fit_fsc(fsc_curve, coeffs):
     '''Fit curve to fsc'''
-    input   = 'N'
+    input = 'N'
     while input[0] != 'y':
         curve_x = np.asarray(fsc_curve[0])
         curve_y = np.asarray(fsc_curve[1])
-        try:
-            fsc_coeffs, var = curve_fit(curve_function, curve_x, curve_y, [0.5, 50.0, 5.0, 50.0, 15.0])
-        except:
-            print(" Error fitting fsc curve...")
-            exit(1)
+
+        if np.any(coeffs):
+            if len(coeffs) == 2:
+                coeffs, var = curve_fit(fsc_1sigmoid, curve_x, curve_y, coeffs, maxfev=100000)
+            elif len(coeffs) == 5:
+                coeffs, var = curve_fit(fsc_2sigmoid, curve_x, curve_y, coeffs, maxfev=100000)
+            elif len(coeffs) == 8:
+                coeffs, var = curve_fit(fsc_3sigmoid, curve_x, curve_y, coeffs, maxfev=100000)
+            elif len(coeffs) == 11:
+                coeffs, var = curve_fit(fsc_4sigmoid, curve_x, curve_y, coeffs, maxfev=100000)
+
         residuals = []
         for i, val in enumerate(fsc_curve[0]):
-            calc = curve_function(val, *fsc_coeffs)
+            calc = curve_function(val, coeffs, fsc_curve)
             residuals.append(np.abs(calc - fsc_curve[1][i]))
 
         print(' Residuals for the fitted curve - mean: ' + str(np.mean(np.asarray(residuals))) + ' - max: ' + str(np.max(np.asarray(residuals)))+' - these should be in the region - mean: <= 0.01 - max: <= 0.05 - to proceed')
@@ -246,8 +304,9 @@ def fit_fsc(fsc_curve):
         fig = plt.figure()
         ax = plt.subplot(111)
         
-        x = np.arange(fsc_curve[0][0], fsc_curve[0][-1], 0.01)
-        ax.plot(x, curve_function(x, *fsc_coeffs), linewidth=2, linestyle=':', color='black')
+        res = np.arange(fsc_curve[0][0], fsc_curve[0][-1], 0.001)
+        fsc = np.asarray([curve_function(i, coeffs, fsc_curve) for i in res])
+        ax.plot(res, fsc, linewidth=2, linestyle=':', color='black')
 
         for i in range(len(fsc_curve[0])):
             c_val[i] = scalar_map.to_rgba(residuals[i])
@@ -267,9 +326,36 @@ def fit_fsc(fsc_curve):
         if not input:
             input = 'N'
 
-    return fsc_coeffs
+    fig = plt.figure()
+    ax = plt.subplot(111)
 
-def fft_to_hkl(h, k, l, val, fsc_coeffs, resolution, full_size, flag_frac):
+    res = np.arange(fsc_curve[0][0], fsc_curve[0][-1], 0.001)
+    fsc = np.asarray([curve_function(i, coeffs, fsc_curve) for i in res])
+    fom = fsc_to_fom(fsc)
+
+    ax.plot(res, fom, linewidth=2, color='magenta')
+    ax.plot(res, fsc, linewidth=2, linestyle=':', color='black')
+
+    plt.xlabel('Resolution')
+    plt.ylabel('Calculated Figure of Merit')
+    plt.title('FOM for examination (FSC in black)')
+    plt.show()
+
+    fig = plt.figure()
+    ax = plt.subplot(111)
+
+    sig = np.asarray((0.999 * fom) / (1 - (0.999 * fom)))
+    ax.plot(res, sig, linewidth=2, color='magenta')
+    ax.plot(res, fsc, linewidth=2, linestyle=':', color='black')
+
+    plt.xlabel('Resolution')
+    plt.ylabel('Signal to noise ratio')
+    plt.title('SNR for examination (FSC in black)')
+    plt.show()
+
+    return fsc_curve, coeffs
+
+def fft_to_hkl(h, k, l, val, coeffs, fsc_curve, resolution, full_size, flag_frac):
     '''Reformat fft record as hkl record'''
     if h or k or l:
         res = full_size / (np.linalg.norm(np.asarray([h, k, l])))
@@ -285,7 +371,7 @@ def fft_to_hkl(h, k, l, val, fsc_coeffs, resolution, full_size, flag_frac):
     if angle < 0:
         angle += 360.0
 
-    fsc = curve_function((1. / res), *fsc_coeffs)
+    fsc = curve_function((1. / res), coeffs, fsc_curve)
     sig = fsc_to_sigf(mag, fsc)
     fom = fsc_to_fom(fsc)
     hla, hlb = fom_to_hl(fom, np.angle(val))
@@ -346,16 +432,15 @@ def write_mtz_file(map_file, full_size, res_min, res_max, hkl_fp):
     f.close()
     return
 
-# MAIN LOOP
-
 def main():
 
     print('\n ban_mrc_to_mtz.py v1.0: Generate .mtz reflection file from .mrc and .star files with FOM blurring - GNU licensed 16-02-2016 - __chsa__')
     print(' <Please reference Greber BJ, Boehringer D, Leibundgut M, Bieri P, Leitner A, Schmitz N, Aebersold R, Ban N. Nature. 515: 283-6 (2014)>\n')
 
     if len(sys.argv) < 3:
-        print(' Required inputs: '+sys.argv[0]+'  final_mrc_map.mrc  relion_postprocess.star [--rfree (r_free_percentage)]')
+        print(' Required inputs: '+sys.argv[0]+'  final_mrc_map.mrc  relion_postprocess.star [--rfree (r_free_percentage)] [--curve (order of fitted sigmoid)]')
         print(' FSC is fitted and the resolution dependent curve used to calculate radial FOM and SIGF values for reciprocal space refinement')
+        print(' a double sigmoid is the default option, but the order can be stipulated with [--curve 1-4] - 0 selects gaussian interpolation')
         print(' the script requires numpy and scipy and can operate directly from a relion postprocess .star file or a copy of the text below\n')
         print(' --angpix             1.00                                          // Angstrom per voxel value in the final .mrc map provided')
         print
@@ -370,23 +455,35 @@ def main():
         print(' ...')
         print
         print(' FSC table terminating in a blank line, columns specified by the numbers above, there must be no blank lines before the start\n')
-        exit(1)
+        sys.exit(1)
 
     # Set by default to our normal parameter - can be changed by flag in input
+    coeffs = []
     r_free_percentage = 0.025
     for i, val in enumerate(sys.argv):
+        if "--curve" in val:
+            try:
+                if int(sys.argv[i+1]) == 1:
+                    coeffs = [50.0, 10.0]
+                elif int(sys.argv[i+1]) == 2:
+                    coeffs = [0.49, 50.1, 10.1, 50.0, 10.0]
+                elif int(sys.argv[i+1]) == 3:
+                    coeffs = [0.32, 0.33, 50.2, 10.2, 50.1, 10.1, 50.0, 10.0]
+                elif int(sys.argv[i+1]) == 4:
+                    coeffs = [0.23, 0.24, 0.25, 50.3, 10.3, 50.2, 10.2, 50.1, 10.1, 50.0, 10.0]
+            except:
+                pass
         if "--rfree" in val:
             try:
                 r_free_percentage = float(sys.argv[i+1]) / 100
-                print(" R free fraction set to "+str(r_free_percentage))
             except:
-                print(" R free percentage could not be set!")
+                pass
 
     map_file, star_file = sys.argv[1], sys.argv[2]
 
     if not os.path.isfile(map_file) or not os.path.isfile(star_file):
         print(' Inputs were not valid files')
-        exit(1)
+        sys.exit(1)
 
     print(" Reading mrc map")
     map = mrc_to_numpy(map_file)
@@ -396,7 +493,7 @@ def main():
     fsc_curve, resolution, ANGPIX = read_star_column(star_file)
 
     print(" Fitting fsc curve")
-    fsc_coeff = fit_fsc(fsc_curve)
+    fsc_curve, coeffs = fit_fsc(fsc_curve, coeffs)
 
     print(" Converting to reciprocal space")
     fft = np.fft.fftn(map)
@@ -421,7 +518,7 @@ def main():
             while k <= int(full_size / resolution):
 
                 # Negative values for the h k l reflections given the inverted convention for FFT hand in crystallography
-                RECORD, res = fft_to_hkl(-i, -j, -k, fft[i,j,k], fsc_coeff, resolution, full_size, r_free_percentage)
+                RECORD, res = fft_to_hkl(-i, -j, -k, fft[i,j,k], coeffs, fsc_curve, resolution, full_size, r_free_percentage)
                 if res:
                     if res < res_min:
                         res_min = res
