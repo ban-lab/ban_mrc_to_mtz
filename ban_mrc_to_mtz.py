@@ -67,7 +67,7 @@ def mrc_to_numpy(map_file):
     map_origin = map_origin[map_order]
     map_origin = np.rint(map_origin * (map_size.astype(np.float32) / map_shape)).astype(np.int32)
     f.seek(1024)
-    if map_mode == 0:
+    if   map_mode == 0:
         mrc_map = np.fromstring(f.read(), dtype = np.int8)
     elif map_mode == 1:
         mrc_map = np.fromstring(f.read(), dtype = np.int16)
@@ -115,7 +115,7 @@ def read_star_column(star_file):
 
         line = line.strip().split()
 
-        if line and '_rlnFinalResolution' in line[0]:
+        if line and line[0] == '_rlnFinalResolution':
             try:
                 resolution = float(line[1])
                 print(' ' + str(resolution) + ' final resolution')                
@@ -124,7 +124,7 @@ def read_star_column(star_file):
                 sys.exit(1)
             continue
 
-        if line and '_rlnResolution' in line[0]:
+        if line and line[0] == '_rlnResolution':
             try:
                 res_col = int(line[1][1:]) - 1
                 res     = True
@@ -134,7 +134,7 @@ def read_star_column(star_file):
                 sys.exit(1)
             continue
 
-        if line and '_rlnFourierShellCorrelationCorrected' in line[0]:
+        if line and line[0] == '_rlnFourierShellCorrelationCorrected':
             try:
                 fsc_col = int(line[1][1:]) - 1
                 fsc     = True
@@ -163,30 +163,22 @@ def read_star_column(star_file):
     return fsc_curve, resolution, angpix
 
 def fsc_1sigmoid(x, *coeffs):
-    '''Double sigmoidal curve for fsc fitting'''
-    coeffs = np.asarray(coeffs)
-    coeffs[coeffs < 0] *= -1
+    '''Single sigmoidal curve for fsc fitting'''
     value = 1 - (1 / (1 + np.exp(-x * coeffs[0] + coeffs[1])))
     return value
 
 def fsc_2sigmoid(x, *coeffs):
     '''Double sigmoidal curve for fsc fitting'''
-    coeffs = np.asarray(coeffs)
-    coeffs[coeffs < 0] *= -1
     value = coeffs[0] * (1 - (1 / (1 + np.exp(-x * coeffs[1] + coeffs[2])))) + (1 - coeffs[0]) * (1 - (1 / (1 + np.exp(-x * coeffs[3] + coeffs[4]))))
     return value
 
 def fsc_3sigmoid(x, *coeffs):
     '''Triple sigmoidal curve for fsc fitting'''
-    coeffs = np.asarray(coeffs)
-    coeffs[coeffs < 0] *= -1
     value = coeffs[0] * (1 - (1 / (1 + np.exp(-x * coeffs[2] + coeffs[3])))) + coeffs[1] * (1 - (1 / (1 + np.exp(-x * coeffs[4] + coeffs[5])))) + (1 - (coeffs[0] + coeffs[1])) * (1 - (1 / (1 + np.exp(-x * coeffs[6] + coeffs[7]))))
     return value
 
 def fsc_4sigmoid(x, *coeffs):
     '''Quadruple sigmoidal curve for fsc fitting'''
-    coeffs = np.asarray(coeffs)
-    coeffs[coeffs < 0] *= -1
     value = coeffs[0] * (1 - (1 / (1 + np.exp(-x * coeffs[3] + coeffs[4])))) + coeffs[1] * (1 - (1 / (1 + np.exp(-x * coeffs[5] + coeffs[6])))) + coeffs[2] * (1 - (1 / (1 + np.exp(-x * coeffs[7] + coeffs[8])))) + (1 - (coeffs[0] + coeffs[1] + coeffs[2])) * (1 - (1 / (1 + np.exp(-x * coeffs[9] + coeffs[10]))))
     return value
 
@@ -201,30 +193,28 @@ def fsc_gaussian(res, fsc_curve):
 
 def curve_function(res, coeffs, fsc_curve):
     '''FSC fitting'''
-    if len(coeffs) == 2:
+    coeff_length = len(coeffs)
+    if coeff_length == 2:
         value = fsc_1sigmoid(res, *coeffs)
-    elif len(coeffs) == 5:
+    elif coeff_length == 5:
         value = fsc_2sigmoid(res, *coeffs)
-    elif len(coeffs) == 8:
+    elif coeff_length == 8:
         value = fsc_3sigmoid(res, *coeffs)
-    elif len(coeffs) == 11:
+    elif coeff_length == 11:
         value = fsc_4sigmoid(res, *coeffs)
     else:
         value = fsc_gaussian(res, fsc_curve)
     if value > 1:
         return 1
-    if value < 0:
-        return 0
-    if np.isfinite(value):
+    if value > 0 and np.isfinite(value):
         return value
     else:
         return 0
 
 def fsc_to_sigf(amp, fsc):
-    '''Estimate a proportional SIGF from amplitude and Cref using SSNR - Pawel Penczek, Methods 
-       Enzymol. 2010 - 0.999 weighting to prevent software from complaining about v. low sigfs'''
+    '''Estimate a proportional SIGF from amplitude and Cref using SSNR - Pawel Penczek, Methods Enzymol. 2010'''
     cref = fsc_to_fom(fsc)
-    sigf = amp / ((0.999 * cref) / (1 - (0.999 * cref)))
+    sigf = amp / (cref / (1 - cref))
     if np.isfinite(sigf):
         return sigf
     else:
@@ -258,8 +248,6 @@ def fom_to_hl(fom, phi):
     if q2 <= 0.0:
         r2 = -r2
     x = r1 + r2 - w
-    if x > 9999:
-        x = 9999
     HLA = x * np.cos(phi)
     HLB = x * np.sin(phi)
     if np.isfinite(HLA) and np.isfinite(HLB):
@@ -277,13 +265,13 @@ def fit_fsc(fsc_curve, coeffs):
 
         if np.any(coeffs):
             if len(coeffs) == 2:
-                coeffs, var = curve_fit(fsc_1sigmoid, curve_x, curve_y, coeffs, maxfev=100000)
+                coeffs, var = curve_fit(fsc_1sigmoid, curve_x, curve_y, coeffs, maxfev=1000000)
             elif len(coeffs) == 5:
-                coeffs, var = curve_fit(fsc_2sigmoid, curve_x, curve_y, coeffs, maxfev=100000)
+                coeffs, var = curve_fit(fsc_2sigmoid, curve_x, curve_y, coeffs, maxfev=1000000)
             elif len(coeffs) == 8:
-                coeffs, var = curve_fit(fsc_3sigmoid, curve_x, curve_y, coeffs, maxfev=100000)
+                coeffs, var = curve_fit(fsc_3sigmoid, curve_x, curve_y, coeffs, maxfev=1000000)
             elif len(coeffs) == 11:
-                coeffs, var = curve_fit(fsc_4sigmoid, curve_x, curve_y, coeffs, maxfev=100000)
+                coeffs, var = curve_fit(fsc_4sigmoid, curve_x, curve_y, coeffs, maxfev=1000000)
 
         residuals = []
         for i, val in enumerate(fsc_curve[0]):
@@ -344,7 +332,7 @@ def fit_fsc(fsc_curve, coeffs):
     fig = plt.figure()
     ax = plt.subplot(111)
 
-    sig = np.asarray((0.999 * fom) / (1 - (0.999 * fom)))
+    sig = np.asarray(fom / (1 - fom))
     ax.plot(res, sig, linewidth=2, color='magenta')
     ax.plot(res, fsc, linewidth=2, linestyle=':', color='black')
 
@@ -379,6 +367,8 @@ def fft_to_hkl(h, k, l, val, coeffs, fsc_curve, resolution, full_size, flag_frac
     record = np.array([h, k, l, mag, sig, angle, fom, hla, hlb, 0.0, 0.0, rf], dtype = np.float32)
     
     if not np.all(np.isfinite(record)):
+        print("Skipping record %i %i %i - " %(h, k, l)),
+        print(record)
         return None, None
 
     return record, res
@@ -440,7 +430,8 @@ def main():
     if len(sys.argv) < 3:
         print(' Required inputs: '+sys.argv[0]+'  final_mrc_map.mrc  relion_postprocess.star [--rfree (r_free_percentage)] [--curve (order of fitted sigmoid)]')
         print(' FSC is fitted and the resolution dependent curve used to calculate radial FOM and SIGF values for reciprocal space refinement')
-        print(' a double sigmoid is the default option, but the order can be stipulated with [--curve 1-4] - 0 selects gaussian interpolation')
+        print(' a sigmoid curve of order one to four can be fitted by applying the flag [--curve #], gaussian interpolation is used otherwise')
+        print(' if the residual is high, or the curve does not fit the fsc appropriately, restart - mtz processing may take up to ten minutes')
         print(' the script requires numpy and scipy and can operate directly from a relion postprocess .star file or a copy of the text below\n')
         print(' --angpix             1.00                                          // Angstrom per voxel value in the final .mrc map provided')
         print
@@ -518,15 +509,15 @@ def main():
             while k <= int(full_size / resolution):
 
                 # Negative values for the h k l reflections given the inverted convention for FFT hand in crystallography
-                RECORD, res = fft_to_hkl(-i, -j, -k, fft[i,j,k], coeffs, fsc_curve, resolution, full_size, r_free_percentage)
+                record, res = fft_to_hkl(-i, -j, -k, fft[i,j,k], coeffs, fsc_curve, resolution, full_size, r_free_percentage)
                 if res:
                     if res < res_min:
                         res_min = res
                     if res > res_max:
                         res_max = res
                 if res:
-                    if np.any(RECORD):
-                        hkl_fp.append(RECORD)
+                    if np.any(record):
+                        hkl_fp.append(record)
                 k += 1
             j += 1
         i += 1
